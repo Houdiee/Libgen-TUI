@@ -8,11 +8,16 @@ use reqwest::Client;
 
 pub use search::Book;
 
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+// Applies between reads, so a slow but steady download is never cut off.
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
+// Total limit for page requests. Downloads have none, as their size is unbounded.
+pub const PAGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub fn build_client() -> Client {
     Client::builder()
-        .timeout(REQUEST_TIMEOUT)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
         .build()
         .expect("Failed to build http client.")
 }

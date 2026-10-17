@@ -3,6 +3,8 @@ use log::info;
 use reqwest::Client;
 use scraper::{Html, Selector};
 
+use super::PAGE_TIMEOUT;
+
 pub struct ActiveMirror {
     pub host: String,
     pub siblings: Vec<String>,
@@ -34,6 +36,14 @@ pub fn discover_mirrors(body: &str) -> Vec<String> {
     found
 }
 
+pub fn is_libgen_page(body: &str) -> bool {
+    let search_input_selector = Selector::parse("input[name=\"req\"]").unwrap();
+    Html::parse_document(body)
+        .select(&search_input_selector)
+        .next()
+        .is_some()
+}
+
 pub fn merge(groups: &[&[String]]) -> Vec<String> {
     let mut merged: Vec<String> = Vec::new();
 
@@ -52,7 +62,7 @@ async fn probe(client: Client, mirror: String) -> Result<ActiveMirror, ()> {
     let url = format!("https://{}/", mirror);
     info!("Testing connection to {}", url);
 
-    let response = match client.get(&url).send().await {
+    let response = match client.get(&url).timeout(PAGE_TIMEOUT).send().await {
         Ok(response) if response.status().is_success() => response,
         Ok(response) => {
             info!("{} responded with {}", mirror, response.status());
@@ -71,6 +81,12 @@ async fn probe(client: Client, mirror: String) -> Result<ActiveMirror, ()> {
             return Err(());
         }
     };
+
+    // Parked domains and placeholder pages still answer 200, so check it is really libgen.
+    if !is_libgen_page(&body) {
+        info!("{} answered but is not serving libgen", mirror);
+        return Err(());
+    }
 
     Ok(ActiveMirror {
         siblings: discover_mirrors(&body),

@@ -4,7 +4,7 @@ use reqwest::Client;
 use scraper::{Html, Selector};
 use tokio::{fs::File, io::AsyncWriteExt};
 
-use super::mirrors_by_preference;
+use super::{mirrors_by_preference, PAGE_TIMEOUT};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DownloadError {
@@ -40,6 +40,7 @@ pub async fn resolve_url(
     let url = format!("https://{}/ads.php?md5={}", mirror, md5);
     let body = client
         .get(url)
+        .timeout(PAGE_TIMEOUT)
         .send()
         .await?
         .error_for_status()?
@@ -105,11 +106,38 @@ pub fn destination_path(directory: &str, title: &str, extension: &str) -> PathBu
     Path::new(directory).join(sanitize_filename(title, extension))
 }
 
+pub fn partial_path(destination: &Path) -> PathBuf {
+    let mut name = destination.as_os_str().to_owned();
+    name.push(".part");
+    PathBuf::from(name)
+}
+
+async fn write_chunks(
+    mut response: reqwest::Response,
+    path: &Path,
+) -> Result<u64, DownloadError> {
+    let write_error = |source| DownloadError::Write {
+        path: path.display().to_string(),
+        source,
+    };
+
+    let mut file = File::create(path).await.map_err(write_error)?;
+    let mut written = 0;
+
+    while let Some(chunk) = response.chunk().await? {
+        file.write_all(&chunk).await.map_err(write_error)?;
+        written += chunk.len() as u64;
+    }
+
+    file.flush().await.map_err(write_error)?;
+    Ok(written)
+}
+
 pub async fn download_to_file(
     client: &Client,
     url: &str,
     destination: &Path,
-) -> Result<(), DownloadError> {
+) -> Result<u64, DownloadError> {
     let response = client.get(url).send().await?.error_for_status()?;
 
     let is_html = response
@@ -122,16 +150,23 @@ pub async fn download_to_file(
         return Err(DownloadError::NotAFile);
     }
 
-    let content = response.bytes().await?;
+    // Written under a temporary name so an interrupted download never looks finished.
+    let partial = partial_path(destination);
 
-    let write = async {
-        let mut file = File::create(destination).await?;
-        file.write_all(&content).await?;
-        file.flush().await
+    let written = match write_chunks(response, &partial).await {
+        Ok(written) => written,
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&partial).await;
+            return Err(e);
+        }
     };
 
-    write.await.map_err(|source| DownloadError::Write {
-        path: destination.display().to_string(),
-        source,
-    })
+    tokio::fs::rename(&partial, destination)
+        .await
+        .map_err(|source| DownloadError::Write {
+            path: destination.display().to_string(),
+            source,
+        })?;
+
+    Ok(written)
 }

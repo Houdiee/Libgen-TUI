@@ -102,6 +102,6 @@ Libgen changes its domains and page layout from time to time, which breaks searc
 ```sh
 cargo test
 ```
-They check mirror reachability, result parsing, download-link resolution and an actual download, and report which one fails.
+They check mirror reachability, result parsing, download-link resolution and an actual download of a book over 25 MB, and report which one fails. The download makes them take a minute or two on a typical connection.
 
 Run with `RUST_LOG=debug libgen-tui 2>log.txt` to record what each request did. Logging is off by default because it writes to stderr, which would otherwise draw over the interface.

@@ -52,10 +52,24 @@ async fn pipeline_works_end_to_end() {
         );
     }
 
+    // Large enough that it cannot finish inside a single request timeout, which is
+    // how downloads used to be cut off part way.
+    let mut large: Vec<_> = books
+        .iter()
+        .filter_map(|book| size_in_mb(&book.size).map(|mb| (mb, book)))
+        .filter(|(mb, _)| *mb >= MIN_DOWNLOAD_MB)
+        .collect();
+    large.sort_by_key(|(mb, _)| *mb);
+    assert!(
+        !large.is_empty(),
+        "no result is {} MB or larger, so the download test needs a different query",
+        MIN_DOWNLOAD_MB
+    );
+
     let destination = std::env::temp_dir().join("libgen-tui-pipeline-test.bin");
     let mut failures = Vec::new();
 
-    for book in books.iter().take(5) {
+    for (mb, book) in large.into_iter().take(3) {
         let url =
             match download::resolve_url_with_failover(&client, &mirrors, &served_by, &book.md5)
                 .await
@@ -69,15 +83,25 @@ async fn pipeline_works_end_to_end() {
         assert!(url.contains("key="), "download url carries no key: {}", url);
 
         match download::download_to_file(&client, &url, &destination).await {
-            Ok(()) => {
-                let written = std::fs::metadata(&destination)
+            Ok(written) => {
+                let on_disk = std::fs::metadata(&destination)
                     .expect("file was not written")
                     .len();
                 println!(
-                    "downloaded {:?}: {} bytes from {}",
-                    book.title, written, url
+                    "downloaded {:?}: {} bytes (listed as {} MB) from {}",
+                    book.title, written, mb, url
                 );
-                assert!(written > 1024, "download was suspiciously small");
+                assert_eq!(on_disk, written, "file on disk does not match bytes received");
+                assert!(
+                    written >= (mb - 1) * 1024 * 1024,
+                    "download stopped early: {} bytes for a {} MB book",
+                    written,
+                    mb
+                );
+                assert!(
+                    !download::partial_path(&destination).exists(),
+                    "partial file was left behind"
+                );
                 let _ = std::fs::remove_file(&destination);
                 return;
             }
@@ -90,4 +114,27 @@ async fn pipeline_works_end_to_end() {
          problem with this crate; anything else is worth investigating:\n  {}",
         failures.join("\n  ")
     );
+}
+
+const MIN_DOWNLOAD_MB: u64 = 25;
+
+fn size_in_mb(size: &str) -> Option<u64> {
+    let (number, unit) = size.split_once(' ')?;
+    let number: u64 = number.parse().ok()?;
+    match unit.to_ascii_uppercase().as_str() {
+        "MB" => Some(number),
+        "GB" => Some(number * 1024),
+        _ => None,
+    }
+}
+
+#[test]
+fn placeholder_pages_are_not_mirrors() {
+    let nginx = "<html><head><title>Welcome to nginx!</title></head>\
+                 <body><h1>Welcome to nginx!</h1></body></html>";
+    let libgen = "<html><body><form id=\"formlibgen\" action=\"index.php\">\
+                  <input name=\"req\" type=\"text\"></form></body></html>";
+
+    assert!(!mirror::is_libgen_page(nginx));
+    assert!(mirror::is_libgen_page(libgen));
 }

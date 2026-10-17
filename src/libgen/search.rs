@@ -2,7 +2,7 @@ use reqwest::Client;
 use scraper::{ElementRef, Html, Selector};
 use urlencoding::encode;
 
-use super::mirrors_by_preference;
+use super::{mirrors_by_preference, PAGE_TIMEOUT};
 
 #[derive(Debug, Clone, Default)]
 pub struct Book {
@@ -210,6 +210,7 @@ pub async fn search_mirror(
 
     let body = client
         .get(url)
+        .timeout(PAGE_TIMEOUT)
         .send()
         .await?
         .error_for_status()?

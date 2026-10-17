@@ -135,7 +135,7 @@ impl App {
             .await;
 
             match result {
-                Ok(()) => downloads.complete(&book.md5),
+                Ok(_) => downloads.complete(&book.md5),
                 Err(e) => {
                     log::error!("Download of {} failed: {}", book.title, e);
                     downloads.fail(&book.md5, e);
