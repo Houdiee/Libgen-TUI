@@ -91,7 +91,10 @@ async fn pipeline_works_end_to_end() {
                     "downloaded {:?}: {} bytes (listed as {} MB) from {}",
                     book.title, written, mb, url
                 );
-                assert_eq!(on_disk, written, "file on disk does not match bytes received");
+                assert_eq!(
+                    on_disk, written,
+                    "file on disk does not match bytes received"
+                );
                 assert!(
                     written >= (mb - 1) * 1024 * 1024,
                     "download stopped early: {} bytes for a {} MB book",

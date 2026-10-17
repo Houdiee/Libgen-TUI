@@ -112,10 +112,7 @@ pub fn partial_path(destination: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-async fn write_chunks(
-    mut response: reqwest::Response,
-    path: &Path,
-) -> Result<u64, DownloadError> {
+async fn write_chunks(mut response: reqwest::Response, path: &Path) -> Result<u64, DownloadError> {
     let write_error = |source| DownloadError::Write {
         path: path.display().to_string(),
         source,
